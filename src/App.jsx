@@ -331,6 +331,21 @@ const handleLogin = async (e) => {
   setAuthError("فشل تسجيل الدخول: " + error.message);
 }
 };
+const handleSignUp = async (e) => {
+  e.preventDefault();
+  setAuthError("");
+
+  const { error } = await supabase.auth.signUp({
+    email,
+    password,
+  });
+
+  if (error) {
+    setAuthError("فشل إنشاء الحساب: " + error.message);
+  } else {
+    setAuthError("تم إنشاء الحساب! تحقق من بريدك الإلكتروني لتأكيده.");
+  }
+};
 const handleAddCourse = async (e) => {
   e.preventDefault();
   setCourseFormMessage("");
@@ -524,7 +539,15 @@ if (!session) {
 
           {authError && <p>{authError}</p>}
 
-          <button type="submit">دخول</button>
+         <button type="submit">دخول</button>
+
+<button
+  type="button"
+  onClick={handleSignUp}
+  className="signup-button"
+>
+  إنشاء حساب جديد
+</button>
         </form>
       </div>
     </div>
