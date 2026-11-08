@@ -51,6 +51,19 @@ const [newLessonPosition, setNewLessonPosition] = useState(2);
 const [newLessonPassPercent, setNewLessonPassPercent] = useState(70);
 const [savingLesson, setSavingLesson] = useState(false);
 const [lessonFormMessage, setLessonFormMessage] = useState("");
+const [selectedQuizLesson, setSelectedQuizLesson] = useState("");
+const [newQuestionText, setNewQuestionText] = useState("");
+const [newQuestionOptions, setNewQuestionOptions] = useState(["", "", ""]);
+const [correctOptionIndex, setCorrectOptionIndex] = useState(0);
+const [savingQuestion, setSavingQuestion] = useState(false);
+const [questionFormMessage, setQuestionFormMessage] = useState("");
+const [adminQuestions, setAdminQuestions] = useState([]);
+const [showQuizPreview, setShowQuizPreview] = useState(false);
+const [editingQuestionId, setEditingQuestionId] = useState(null);
+const [editQuestionText, setEditQuestionText] = useState("");
+const [editQuestionOptions, setEditQuestionOptions] = useState(["", "", ""]);
+const [editCorrectOptionIndex, setEditCorrectOptionIndex] = useState(0);
+const [loadingAdminQuestions, setLoadingAdminQuestions] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedCourse, setSelectedCourse] = useState(null);
   const [selectedLesson, setSelectedLesson] = useState(null);
@@ -314,6 +327,13 @@ useEffect(() => {
 
   fetchLessons();
 }, [session]);
+useEffect(() => {
+  if (selectedQuizLesson) {
+    fetchAdminQuestions(selectedQuizLesson);
+  } else {
+    setAdminQuestions([]);
+  }
+}, [selectedQuizLesson]);
   const filteredCourses = courses.filter((course) =>
     course.title.toLowerCase().includes(search.toLowerCase())
   );
@@ -408,13 +428,6 @@ const handleAddLesson = async (e) => {
     setLessonFormMessage("ليس لديك صلاحية لإضافة الدروس.");
     return;
   }
- 
-const handleAnswerChange = (questionId, optionId) => {
-  setQuizAnswers((previous) => ({
-    ...previous,
-    [questionId]: optionId,
-  }));
-};
 
   if (!newLessonTitle.trim() || !newLessonVideo.trim()) {
     setLessonFormMessage("يرجى كتابة اسم الدرس ورابط الفيديو.");
@@ -432,7 +445,7 @@ const handleAnswerChange = (questionId, optionId) => {
         youtube_url: newLessonVideo.trim(),
         position: Number(newLessonPosition),
         pass_percent: Number(newLessonPassPercent),
-        is_published: false,
+       is_published: true,
       });
 
     if (error) {
@@ -460,8 +473,308 @@ const handleAnswerChange = (questionId, optionId) => {
   } catch (error) {
     setLessonFormMessage("حدث خطأ: " + error.message);
   } finally {
-    setSavingLesson(false);
+    setSavingLesson(false); 
   }
+};
+const handleUpdatePassPercent = async (lesson) => {
+  const value = window.prompt(
+    "أدخل نسبة النجاح الجديدة من 1 إلى 100:",
+    lesson.pass_percent
+  );
+
+  if (value === null) return;
+
+  const percent = Number(value);
+
+  if (!Number.isInteger(percent) || percent < 1 || percent > 100) {
+    alert("أدخل نسبة صحيحة بين 1 و100.");
+    return;
+  }
+
+  const { error } = await supabase
+    .from("lessons")
+    .update({ pass_percent: percent })
+    .eq("id", lesson.id);
+
+  if (error) {
+    alert("تعذر تحديث النسبة: " + error.message);
+    return;
+  }
+
+  setLessons((current) =>
+    current.map((item) =>
+      item.id === lesson.id
+        ? { ...item, pass_percent: percent }
+        : item
+    )
+  );
+
+  alert("تم تحديث نسبة النجاح بنجاح.");
+};
+const handleUpdateLesson = async (lesson) => {
+  const title = window.prompt("أدخل عنوان الدرس الجديد:", lesson.title);
+  if (title === null) return;
+
+  const video = window.prompt("أدخل رابط الفيديو الجديد:", lesson.youtube_url || "");
+  if (video === null) return;
+
+  const position = window.prompt("أدخل ترتيب الدرس:", lesson.position);
+  if (position === null) return;
+
+  if (!title.trim() || !video.trim()) {
+    alert("العنوان ورابط الفيديو مطلوبان.");
+    return;
+  }
+
+  const newPosition = Number(position);
+
+  if (!Number.isInteger(newPosition) || newPosition < 1) {
+    alert("ترتيب الدرس يجب أن يكون رقماً صحيحاً يبدأ من 1.");
+    return;
+  }
+
+  const { error } = await supabase
+    .from("lessons")
+    .update({
+      title: title.trim(),
+      youtube_url: video.trim(),
+      position: newPosition,
+    })
+    .eq("id", lesson.id);
+
+  if (error) {
+    alert("تعذر تعديل الدرس: " + error.message);
+    return;
+  }
+
+  const { data, error: fetchError } = await supabase
+    .from("lessons")
+    .select("id, course_id, title, youtube_url, position, pass_percent, is_published")
+    .order("position", { ascending: true });
+
+  if (fetchError) {
+    alert("تم التعديل، لكن تعذر تحديث القائمة.");
+    return;
+  }
+
+  setLessons(data || []);
+  alert("تم تعديل بيانات الدرس بنجاح.");
+};
+const handleToggleLessonPublish = async (lesson) => {
+  const newStatus = !lesson.is_published;
+
+  const { error } = await supabase
+    .from("lessons")
+    .update({ is_published: newStatus })
+    .eq("id", lesson.id);
+
+  if (error) {
+    alert("تعذر تغيير حالة النشر: " + error.message);
+    return;
+  }
+
+  setLessons((current) =>
+    current.map((item) =>
+      item.id === lesson.id
+        ? { ...item, is_published: newStatus }
+        : item
+    )
+  );
+
+  alert(newStatus ? "تم نشر الدرس." : "تم إيقاف نشر الدرس.");
+};
+const handleDeleteLesson = async (lesson) => {
+  const confirmed = window.confirm(
+    `هل أنت متأكد من حذف الدرس "${lesson.title}"؟ سيتم حذف الأسئلة والمحاولات والتقدم المرتبط به، ولا يمكن التراجع عن ذلك.`
+  );
+
+  if (!confirmed) return;
+
+  const { error } = await supabase.rpc("admin_delete_lesson", {
+    p_lesson_id: lesson.id,
+  });
+
+  if (error) {
+    alert("تعذر حذف الدرس: " + error.message);
+    return;
+  }
+
+  setLessons((current) =>
+    current.filter((item) => item.id !== lesson.id)
+  );
+
+  alert("تم حذف الدرس وكل البيانات المرتبطة به.");
+};
+const handleAddQuestion = async (e) => {
+  e.preventDefault();
+  setQuestionFormMessage("");
+
+  if (userRole !== "admin") {
+    setQuestionFormMessage("ليس لديك صلاحية لإضافة الأسئلة.");
+    return;
+  }
+
+  if (!selectedQuizLesson) {
+    setQuestionFormMessage("يرجى اختيار الدرس.");
+    return;
+  }
+
+  if (!newQuestionText.trim()) {
+    setQuestionFormMessage("يرجى كتابة نص السؤال.");
+    return;
+  }
+
+  if (newQuestionOptions.some((option) => !option.trim())) {
+    setQuestionFormMessage("يرجى كتابة الخيارات الثلاثة.");
+    return;
+  }
+
+  setSavingQuestion(true);
+
+  try {
+    const { error } = await supabase.rpc("admin_add_question", {
+      p_lesson_id: selectedQuizLesson,
+      p_question_text: newQuestionText.trim(),
+      p_options: newQuestionOptions.map((option) => option.trim()),
+      p_correct_option: correctOptionIndex + 1,
+    });
+
+    if (error) {
+      setQuestionFormMessage("تعذر حفظ السؤال: " + error.message);
+      return;
+    }
+
+    setNewQuestionText("");
+    setNewQuestionOptions(["", "", ""]);
+    setCorrectOptionIndex(0);
+
+    setQuestionFormMessage("تم حفظ السؤال بنجاح.");
+  } catch (error) {
+    setQuestionFormMessage("حدث خطأ: " + error.message);
+  } finally {
+    setSavingQuestion(false);
+  }
+};
+const handleEditQuestion = async (question) => {
+  setEditingQuestionId(question.id);
+  setEditQuestionText(question.question_text);
+
+  setEditQuestionOptions(
+    question.question_options.map((option) => option.option_text)
+  );
+
+  const { data, error } = await supabase.rpc(
+    "admin_get_correct_option",
+    {
+      p_question_id: question.id,
+    }
+  );
+
+  if (error) {
+    setQuestionFormMessage(
+      "تعذر تحميل الإجابة الصحيحة: " + error.message
+    );
+    setEditingQuestionId(null);
+    return;
+  }
+
+  setEditCorrectOptionIndex(data - 1);
+};
+const handleSaveQuestionEdit = async (e) => {
+  e.preventDefault();
+  setQuestionFormMessage("");
+
+  if (!editQuestionText.trim()) {
+    setQuestionFormMessage("يرجى كتابة نص السؤال.");
+    return;
+  }
+
+  if (editQuestionOptions.some((option) => !option.trim())) {
+    setQuestionFormMessage("يرجى كتابة الخيارات الثلاثة.");
+    return;
+  }
+
+  const { error } = await supabase.rpc("admin_update_question", {
+    p_question_id: editingQuestionId,
+    p_question_text: editQuestionText.trim(),
+    p_options: editQuestionOptions.map((option) => option.trim()),
+    p_correct_option: editCorrectOptionIndex + 1,
+  });
+
+  if (error) {
+    setQuestionFormMessage("تعذر حفظ التعديل: " + error.message);
+    return;
+  }
+
+  await fetchAdminQuestions(selectedQuizLesson);
+  setEditingQuestionId(null);
+  setQuestionFormMessage("تم تعديل السؤال بنجاح.");
+};
+const handleDeleteQuestion = async (questionId) => {
+  const confirmed = window.confirm(
+    "هل أنت متأكد من حذف هذا السؤال؟ لا يمكن التراجع عن الحذف."
+  );
+
+  if (!confirmed) return;
+
+  setQuestionFormMessage("");
+
+  const { error } = await supabase.rpc("admin_delete_question", {
+    p_question_id: questionId,
+  });
+
+  if (error) {
+    setQuestionFormMessage("تعذر حذف السؤال: " + error.message);
+    return;
+  }
+
+  await fetchAdminQuestions(selectedQuizLesson);
+
+  if (editingQuestionId === questionId) {
+    setEditingQuestionId(null);
+  }
+
+  setQuestionFormMessage("تم حذف السؤال بنجاح.");
+};
+const fetchAdminQuestions = async (lessonId) => {
+  if (!lessonId) {
+    setAdminQuestions([]);
+    return;
+  }
+
+  setLoadingAdminQuestions(true);
+
+  const { data, error } = await supabase
+    .from("questions")
+    .select(`
+      id,
+      question_text,
+      position,
+      question_options (
+        id,
+        option_text,
+        position
+      )
+    `)
+    .eq("lesson_id", lessonId)
+    .order("position", { ascending: true });
+
+  if (error) {
+    console.error("Admin questions error:", error.message);
+    setQuestionFormMessage("تعذر تحميل الأسئلة: " + error.message);
+    setAdminQuestions([]);
+  } else {
+    const sortedQuestions = (data || []).map((question) => ({
+      ...question,
+      question_options: [...(question.question_options || [])].sort(
+        (a, b) => a.position - b.position
+      ),
+    }));
+
+    setAdminQuestions(sortedQuestions);
+  }
+
+  setLoadingAdminQuestions(false);
 };
 const handlePasswordUpdate = async (e) => {
   e.preventDefault();
@@ -563,9 +876,19 @@ if (!session) {
             <span>منصة التعلم الذكي</span>
           </div>
         </div>
-        <button className="profile-button" aria-label="الملف الشخصي">
-          👤
-        </button>
+       <button
+  className="profile-button"
+  aria-label="تسجيل الخروج"
+  onClick={async () => {
+    const { error } = await supabase.auth.signOut();
+
+    if (error) {
+      alert("حدث خطأ أثناء تسجيل الخروج");
+    }
+  }}
+>
+  🚪
+</button>
       </header>
            {userRole === "admin" && (
         <>
@@ -678,7 +1001,15 @@ if (!session) {
     onChange={(e) => setNewLessonVideo(e.target.value)}
     required
   />
-
+<label>نسبة النجاح المطلوبة (%)</label>
+<input
+  type="number"
+  min="1"
+  max="100"
+  value={newLessonPassPercent}
+  onChange={(e) => setNewLessonPassPercent(Number(e.target.value))}
+  required
+/>
   <label>ترتيب الدرس</label>
   <input
     type="number"
@@ -722,7 +1053,32 @@ if (!session) {
         <h3>{lesson.title}</h3>
 
         <p>ترتيب الدرس: {lesson.position}</p>
-        <p>نسبة النجاح المطلوبة: {lesson.pass_percent}%</p>
+     <p>نسبة النجاح المطلوبة: {lesson.pass_percent}%</p>
+
+<button
+  type="button"
+  onClick={() => handleUpdatePassPercent(lesson)}
+>
+  تعديل نسبة النجاح
+</button>
+<button
+  type="button"
+  onClick={() => handleUpdateLesson(lesson)}
+>
+  تعديل بيانات الدرس
+</button>
+<button
+  type="button"
+  onClick={() => handleToggleLessonPublish(lesson)}
+>
+  {lesson.is_published ? "إيقاف نشر الدرس" : "نشر الدرس"}
+</button>
+<button
+  type="button"
+  onClick={() => handleDeleteLesson(lesson)}
+>
+  حذف الدرس
+</button>
 
         <p>
           الحالة: {lesson.is_published ? "منشور" : "غير منشور"}
@@ -743,9 +1099,192 @@ if (!session) {
   </>
 )}
 
-    {adminSection === "questions" && (
-      <h2>إدارة الاختبارات — قيد التجهيز</h2>
+ {adminSection === "questions" && (
+  <>
+    <h2>إدارة الاختبارات</h2>
+
+    <form className="admin-course-form" onSubmit={handleAddQuestion}>
+      <h3>إضافة سؤال جديد</h3>
+
+      <label>اختر الدرس</label>
+      <select
+        value={selectedQuizLesson}
+        onChange={(e) => setSelectedQuizLesson(e.target.value)}
+        required
+      >
+        <option value="">اختر الدرس</option>
+        {lessons
+          .filter(
+            (lesson) =>
+              lesson.course_id === "702c051e-f7f8-46d6-b22d-c5e5d9d6ab4c"
+          )
+          .map((lesson) => (
+            <option key={lesson.id} value={lesson.id}>
+              {lesson.title}
+            </option>
+          ))}
+      </select>
+
+      <label>نص السؤال</label>
+      <textarea
+        value={newQuestionText}
+        onChange={(e) => setNewQuestionText(e.target.value)}
+        placeholder="اكتب السؤال هنا"
+        required
+      />
+
+      {[0, 1, 2].map((index) => (
+        <div key={index}>
+          <label>الخيار {index + 1}</label>
+          <input
+            type="text"
+            value={newQuestionOptions[index]}
+            onChange={(e) => {
+              const updated = [...newQuestionOptions];
+              updated[index] = e.target.value;
+              setNewQuestionOptions(updated);
+            }}
+            placeholder={`اكتب الخيار ${index + 1}`}
+            required
+          />
+          <label>
+            <input
+              type="radio"
+              name="correctOption"
+              checked={correctOptionIndex === index}
+              onChange={() => setCorrectOptionIndex(index)}
+            />
+            هذا هو الجواب الصحيح
+          </label>
+        </div>
+      ))}
+
+      <button type="submit" disabled={savingQuestion}>
+        {savingQuestion ? "جاري الحفظ..." : "حفظ السؤال"}
+      </button>
+
+      {questionFormMessage && <p>{questionFormMessage}</p>}
+       </form>
+
+    <div className="admin-questions-list">
+     <h3>الأسئلة المحفوظة</h3>
+<button
+  type="button"
+  onClick={() => setShowQuizPreview(!showQuizPreview)}
+  disabled={adminQuestions.length === 0}
+>
+  {showQuizPreview ? "إغلاق المعاينة" : "معاينة الاختبار"}
+</button>
+{showQuizPreview && (
+  <div className="quiz-preview">
+    <h3>معاينة الاختبار</h3>
+    <p>هذه معاينة فقط، ولا يتم تسجيل أي محاولة أو درجة.</p>
+
+    {adminQuestions.map((question, index) => (
+      <div className="quiz-question" key={question.id}>
+        <h4>
+          السؤال {index + 1}: {question.question_text}
+        </h4>
+
+        {question.question_options.map((option) => (
+          <div className="quiz-option" key={option.id}>
+            <label>
+              <input type="radio" disabled />
+              {option.option_text}
+            </label>
+          </div>
+        ))}
+      </div>
+    ))}
+  </div>
+)}
+{loadingAdminQuestions && <p>جاري تحميل الأسئلة...</p>}
+
+
+{!loadingAdminQuestions && adminQuestions.length === 0 && (
+  <p>لا توجد أسئلة لهذا الدرس حالياً.</p>
+)}
+
+{!loadingAdminQuestions && adminQuestions.map((question, index) => (
+  <div key={question.id} className="quiz-question">
+    <h4>
+      السؤال {index + 1}: {question.question_text}
+    </h4>
+
+    {question.question_options.map((option) => (
+      <p key={option.id}>
+        {option.position}. {option.option_text}
+      </p>
+    ))}
+
+    <button
+      type="button"
+      onClick={() => handleEditQuestion(question)}
+    >
+      تعديل السؤال
+    </button>
+<button
+  type="button"
+  onClick={() => handleDeleteQuestion(question.id)}
+>
+  حذف السؤال
+</button>
+    {editingQuestionId === question.id && (
+      <form onSubmit={handleSaveQuestionEdit}>
+        <h4>تعديل السؤال</h4>
+
+        <label>نص السؤال</label>
+        <textarea
+          value={editQuestionText}
+          onChange={(e) => setEditQuestionText(e.target.value)}
+          required
+        />
+
+        {editQuestionOptions.map((option, optionIndex) => (
+          <div key={optionIndex}>
+            <label>الخيار {optionIndex + 1}</label>
+
+            <input
+              type="text"
+              value={option}
+              onChange={(e) => {
+                const updated = [...editQuestionOptions];
+                updated[optionIndex] = e.target.value;
+                setEditQuestionOptions(updated);
+              }}
+              required
+            />
+
+            <label>
+              <input
+                type="radio"
+                name="editCorrectOption"
+                checked={editCorrectOptionIndex === optionIndex}
+                onChange={() => setEditCorrectOptionIndex(optionIndex)}
+              />
+              الجواب الصحيح
+            </label>
+          </div>
+        ))}
+
+        <button type="submit">
+          حفظ التعديلات
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setEditingQuestionId(null)}
+        >
+          إلغاء
+        </button>
+      </form>
     )}
+  </div>
+))}
+</div>
+
+</>
+)}
   </section>
 )}
         <section className="welcome-card">
