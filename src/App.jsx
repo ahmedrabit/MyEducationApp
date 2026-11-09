@@ -351,6 +351,24 @@ const handleLogin = async (e) => {
   setAuthError("فشل تسجيل الدخول: " + error.message);
 }
 };
+const handleForgotPassword = async () => {
+  if (!email) {
+    setAuthError("اكتب بريدك الإلكتروني أولاً.");
+    return;
+  }
+
+  setAuthError("");
+
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+ redirectTo: "https://myeducationapp.vercel.app",
+  });
+
+  if (error) {
+    setAuthError("تعذر إرسال رابط الاستعادة: " + error.message);
+  } else {
+    setAuthError("تم إرسال رابط استعادة كلمة المرور إلى بريدك الإلكتروني.");
+  }
+};
 const handleSignUp = async (e) => {
   e.preventDefault();
   setAuthError("");
@@ -804,7 +822,7 @@ if (recoveryMode) {
   return (
     <div className="login-page" dir="rtl">
       <div className="login-box">
-        <h1>MyEducation</h1>
+   <h1>Active Zed</h1>
         <h2>تعيين كلمة مرور جديدة</h2>
 
         <form onSubmit={handlePasswordUpdate}>
@@ -849,7 +867,13 @@ if (!session) {
             onChange={(e) => setPassword(e.target.value)}
             required
           />
-
+<button
+  type="button"
+  onClick={handleForgotPassword}
+  className="forgot-password-button"
+>
+  نسيت كلمة المرور؟
+</button>
           {authError && <p>{authError}</p>}
 
          <button type="submit">دخول</button>
@@ -870,9 +894,9 @@ if (!session) {
     <div className="app" dir="rtl">
       <header className="topbar">
         <div className="brand">
-          <div className="brand-logo">M</div>
+        <div className="brand-logo">A</div>
           <div>
-            <h1>MyEducation</h1>
+           <h1>Active Zed</h1>
             <span>منصة التعلم الذكي</span>
           </div>
         </div>
@@ -887,14 +911,29 @@ if (!session) {
     }
   }}
 >
-  🚪
+<svg
+  width="32"
+  height="32"
+  viewBox="0 0 64 64"
+  fill="none"
+  stroke="currentColor"
+  strokeWidth="3.5"
+  strokeLinecap="round"
+  strokeLinejoin="round"
+>
+  <path d="M27 9H11v46h16" />
+  <path d="M27 9l19 5v36l-19 5z" />
+  <circle cx="39" cy="33" r="1.8" fill="currentColor" />
+  <path d="M32 33h27m-9-9 9 9-9 9" />
+</svg>
+<span className="logout-label">تسجيل خروج</span>
 </button>
       </header>
            {userRole === "admin" && (
         <>
           <div className="admin-banner">
             <span>🛠️ لوحة تحكم المدير</span>
-            <span>إدارة منصة MyEducation</span>
+          <span>إدارة منصة Active Zed</span>
           </div>
 
           <nav className="admin-nav">
@@ -1287,6 +1326,7 @@ if (!session) {
 )}
   </section>
 )}
+
         <section className="welcome-card">
           <div className="welcome-text">
             <span className="welcome-label">مرحباً بك في رحلتك التعليمية 👋</span>
@@ -1548,7 +1588,66 @@ if (!session) {
           </div>
         </section>
       </main>
+    {activeTab === "إنجازاتي" && (
+  <section className="account-section">
+    <h2>إنجازاتي 🏆</h2>
 
+    <div className="account-card">
+      <h3>ملخص إنجازاتي</h3>
+
+      <p>
+        <strong>الدروس المجتازة:</strong>{" "}
+        {lessonProgress.filter((item) => item.is_passed).length}
+      </p>
+
+      <p>
+        <strong>أفضل نتيجة:</strong>{" "}
+        {lessonProgress.length > 0
+          ? Math.max(...lessonProgress.map((item) => item.best_score || 0))
+          : 0}%
+      </p>
+
+      <hr />
+
+      <h3>سجل الدروس المجتازة</h3>
+
+      {lessonProgress.filter((item) => item.is_passed).length === 0 ? (
+        <p>لم تجتز أي درس حتى الآن. واصل التعلم!</p>
+      ) : (
+        lessonProgress
+          .filter((item) => item.is_passed)
+          .map((item) => {
+            const lesson = lessons.find((l) => l.id === item.lesson_id);
+
+            return (
+              <div key={item.lesson_id}>
+                <p>
+                  <strong>{lesson?.title || "درس غير معروف"}</strong>
+                </p>
+                <p>أفضل نتيجة: {item.best_score}%</p>
+                <hr />
+              </div>
+            );
+          })
+      )}
+    </div>
+  </section>
+)}
+{activeTab === "حسابي" && (
+  <section className="account-section">
+    <h2>حسابي</h2>
+    <div className="account-card">
+      <p><strong>البريد الإلكتروني:</strong></p>
+      <p>{session?.user?.email || "غير متوفر"}</p>
+
+      <p><strong>نوع الحساب:</strong></p>
+      <p>{userRole === "admin" ? "مدير" : "طالب"}</p>
+
+      <p><strong>معرّف الحساب:</strong></p>
+      <p>{session?.user?.id || "غير متوفر"}</p>
+    </div>
+  </section>
+)}
       <nav className="bottom-nav">
         {[
           ["الرئيسية", "⌂"],
