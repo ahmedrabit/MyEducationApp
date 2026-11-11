@@ -58,6 +58,12 @@ function App() {
   const [newUnitPosition, setNewUnitPosition] = useState(1);
   const [savingUnit, setSavingUnit] = useState(false);
   const [unitMessage, setUnitMessage] = useState("");
+  const [examTitle, setExamTitle] = useState("");
+const [examUnit, setExamUnit] = useState("");
+const [examPassPercent, setExamPassPercent] = useState(50);
+const [examFile, setExamFile] = useState(null);
+const [savingExam, setSavingExam] = useState(false);
+const [examMessage, setExamMessage] = useState("");
   const [selectedQuizLesson, setSelectedQuizLesson] = useState("");
   const [newQuestionText, setNewQuestionText] = useState("");
   const [newQuestionOptions, setNewQuestionOptions] = useState(["", "", ""]);
@@ -191,10 +197,89 @@ function App() {
     }
   };
 
+const handleUploadExamAnswer = async () => {
+  const exam = unitExams.find(
+    (item) => item.unit_id === selectedUnit?.id
+  );
+
+  if (!exam) {
+    setExamStudentMessage("الامتحان غير متاح حالياً.");
+    return;
+  }
+
+  if (!selectedAnswerFile) {
+    setExamStudentMessage("يرجى اختيار ملف الإجابة أولاً.");
+    return;
+  }
+
+  if (selectedAnswerFile.size >= 500 * 1024) {
+    setExamStudentMessage("يجب أن يكون حجم الملف أقل من 500 KB.");
+    return;
+  }
+
+  const allowedTypes = [
+    "application/pdf",
+    "image/jpeg",
+    "image/png",
+  ];
+
+  if (!allowedTypes.includes(selectedAnswerFile.type)) {
+    setExamStudentMessage("يسمح فقط بملفات PDF أو JPG أو PNG.");
+    return;
+  }
+
+  setUploadingExam(true);
+  setExamStudentMessage("");
+
+  let filePath = "";
+
+  try {
+    const fileName = selectedAnswerFile.name.replace(
+      /[^a-zA-Z0-9._-]/g,
+      "_"
+    );
+
+    filePath = `${session.user.id}/${exam.id}/${Date.now()}-${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("student-answers")
+      .upload(filePath, selectedAnswerFile);
+
+    if (uploadError) throw uploadError;
+
+    const { error: saveError } = await supabase
+      .from("unit_exam_submissions")
+      .insert({
+        exam_id: exam.id,
+        student_id: session.user.id,
+        file_path: filePath,
+      });
+
+    if (saveError) {
+      await supabase.storage
+        .from("student-answers")
+        .remove([filePath]);
+      throw saveError;
+    }
+
+    setSelectedAnswerFile(null);
+    setExamStudentMessage("تم رفع إجابتك بنجاح.");
+  } catch (error) {
+    console.error("Exam answer upload error:", error);
+    setExamStudentMessage("تعذر رفع الإجابة: " + error.message);
+  } finally {
+    setUploadingExam(false);
+  }
+};
+
 
   const [courses, setCourses] = useState([]);
   const [lessons, setLessons] = useState([]);
   const [units, setUnits] = useState([]);
+  const [unitExams, setUnitExams] = useState([]);
+  const [selectedAnswerFile, setSelectedAnswerFile] = useState(null);
+const [uploadingExam, setUploadingExam] = useState(false);
+const [examStudentMessage, setExamStudentMessage] = useState("");
   const [lessonProgress, setLessonProgress] = useState([]);
   const [loadingCourses, setLoadingCourses] = useState(true);
   const [session, setSession] = useState(null);
@@ -395,6 +480,29 @@ const fetchLessons = async () => {
 
       fetchUnits();
     }, [session]);
+
+useEffect(() => {
+  const fetchUnitExams = async () => {
+    if (!session?.user) {
+      setUnitExams([]);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("unit_exams")
+      .select("id, unit_id, title, pass_percent, is_published, file_path");
+
+    if (error) {
+      console.error("Error loading unit exams:", error.message);
+      return;
+    }
+
+    setUnitExams(data || []);
+  };
+
+  fetchUnitExams();
+}, [session, userRole]);
+
     useEffect(() => {
       if (selectedQuizLesson) {
         fetchAdminQuestions(selectedQuizLesson);
@@ -532,6 +640,71 @@ const fetchLessons = async () => {
       setNewUnitTitle("");
       setUnitMessage("تمت إضافة الوحدة بنجاح.");
     };
+
+const handleAddExam = async (e) => {
+  e.preventDefault();
+
+  if (!examUnit || !examTitle.trim() || !examFile) {
+    setExamMessage("يرجى إكمال جميع الحقول واختيار ملف الأسئلة.");
+    return;
+  }
+
+  const allowedTypes = [
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ];
+
+
+  if (!allowedTypes.includes(examFile.type)) {
+    setExamMessage("يسمح فقط بملفات PDF أو Word.");
+    return;
+  }
+
+  setSavingExam(true);
+  setExamMessage("");
+
+  try {
+    const fileName = examFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const filePath = `${examUnit}/${Date.now()}-${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("unit-exams")
+      .upload(filePath, examFile);
+
+    if (uploadError) throw uploadError;
+
+    const { error: saveError } = await supabase
+      .from("unit_exams")
+      .upsert(
+        {
+          unit_id: examUnit,
+          title: examTitle.trim(),
+          pass_percent: Number(examPassPercent),
+          file_path: filePath,
+          is_published: false,
+        },
+        { onConflict: "unit_id" }
+      );
+
+    if (saveError) {
+      await supabase.storage.from("unit-exams").remove([filePath]);
+      throw saveError;
+    }
+
+    setExamTitle("");
+    setExamUnit("");
+    setExamPassPercent(50);
+    setExamFile(null);
+    setExamMessage("تم حفظ الامتحان بنجاح، وهو غير منشور حالياً.");
+  } catch (error) {
+    console.error("Exam save error:", error);
+    setExamMessage("تعذر حفظ الامتحان: " + error.message);
+  } finally {
+    setSavingExam(false);
+  }
+};
+
     const handleToggleUnit = async (unit) => {
       const { error } = await supabase
         .from("units")
@@ -553,6 +726,42 @@ const fetchLessons = async () => {
 
       setUnitMessage("تم تحديث حالة الوحدة بنجاح.");
     };
+
+
+const handleToggleExamPublish = async (exam) => {
+  const newStatus = !exam.is_published;
+
+  setExamMessage("جارٍ تحديث حالة الامتحان...");
+
+  try {
+    const { data, error } = await supabase
+      .from("unit_exams")
+      .update({ is_published: newStatus })
+      .eq("id", exam.id)
+      .select("id, is_published")
+      .single();
+
+    if (error) throw error;
+
+    setUnitExams((previous) =>
+      previous.map((item) =>
+        item.id === exam.id
+          ? { ...item, is_published: data.is_published }
+          : item
+      )
+    );
+
+    setExamMessage(
+      data.is_published
+        ? "تم نشر الامتحان بنجاح."
+        : "تم إيقاف نشر الامتحان."
+    );
+  } catch (error) {
+    console.error("Toggle exam publish error:", error);
+    setExamMessage("تعذر تغيير حالة النشر: " + error.message);
+  }
+};
+
     const handleAddLesson = async (e) => {
       e.preventDefault();
       setLessonFormMessage("");
@@ -1094,9 +1303,15 @@ is_required: newLessonRequired,
                 إدارة الدروس
               </button>
 
-              <button onClick={() => setAdminSection("questions")}>
-                الاختبارات
-              </button>
+           
+<button onClick={() => setAdminSection("questions")}>
+  الاختبارات
+</button>
+
+<button onClick={() => setAdminSection("unitExams")}>
+  امتحانات الوحدات
+</button>
+
             </nav>
           </>
         )}
@@ -1234,6 +1449,101 @@ is_required: newLessonRequired,
                   </div>
                 </>
               )}
+
+{adminSection === "unitExams" && (
+  <>
+    <h2>إدارة امتحانات الوحدات</h2>
+
+    <form className="admin-course-form" onSubmit={handleAddExam}>
+      <h3>إضافة امتحان شامل</h3>
+
+      <label>اختر الوحدة</label>
+      <select
+        value={examUnit}
+        onChange={(e) => setExamUnit(e.target.value)}
+        required
+      >
+        <option value="">اختر الوحدة</option>
+        {units.map((unit) => (
+          <option key={unit.id} value={unit.id}>
+            {unit.title}
+          </option>
+        ))}
+      </select>
+
+      <label>عنوان الامتحان</label>
+      <input
+        type="text"
+        value={examTitle}
+        onChange={(e) => setExamTitle(e.target.value)}
+        placeholder="مثلاً: امتحان شامل للوحدة الأولى"
+        required
+      />
+
+      <label>نسبة النجاح (%)</label>
+      <input
+        type="number"
+        min="1"
+        max="100"
+        value={examPassPercent}
+        onChange={(e) => setExamPassPercent(e.target.value)}
+        required
+      />
+
+      <label>ملف أسئلة الامتحان (PDF أو Word)</label>
+      <input
+        type="file"
+        accept=".pdf,.doc,.docx"
+        onChange={(e) => setExamFile(e.target.files[0] || null)}
+        required
+      />
+
+      <button type="submit" disabled={savingExam}>
+        {savingExam ? "جارٍ حفظ الامتحان..." : "حفظ الامتحان"}
+      </button>
+    </form>
+
+    {examMessage && <p>{examMessage}</p>}
+
+<h3>الامتحانات المحفوظة</h3>
+
+{unitExams.length === 0 ? (
+  <p>لا توجد امتحانات محفوظة حالياً.</p>
+) : (
+  unitExams.map((exam) => {
+    const examUnitInfo = units.find(
+      (unit) => unit.id === exam.unit_id
+    );
+
+    return (
+      <div className="admin-course-item" key={exam.id}>
+        <h3>{exam.title}</h3>
+
+        <p>الوحدة: {examUnitInfo?.title || "غير معروفة"}</p>
+        <p>نسبة النجاح: {exam.pass_percent}%</p>
+
+        <p>
+          الحالة: {exam.is_published ? "منشور ✅" : "غير منشور"}
+        </p>
+
+      
+
+<button
+  type="button"
+  onClick={() => handleToggleExamPublish(exam)}
+>
+  {exam.is_published ? "إيقاف النشر" : "نشر الامتحان"}
+</button>
+
+
+      </div>
+    );
+  })
+)}
+
+  </>
+)}
+
               {adminSection === "lessons" && (
                 <>
                   <h2>إدارة الدروس</h2>
@@ -1834,6 +2144,71 @@ is_required: newLessonRequired,
               ))}
           </div>
         )}
+
+{(() => {
+  const unitExam = unitExams.find(
+    (exam) => exam.unit_id === selectedUnit.id
+  );
+
+  if (!unitExam) {
+    return (
+      <div className="unit-exam">
+        <h3>📋 الامتحان الشامل للوحدة</h3>
+        <p>
+          سيظهر الامتحان بعد اجتياز جميع الدروس المطلوبة في هذه الوحدة.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="unit-exam">
+      <h3>📋 {unitExam.title}</h3>
+      <p>نسبة النجاح المطلوبة: {unitExam.pass_percent}%</p>
+
+      <button
+        onClick={async () => {
+          const { data, error } = await supabase.storage
+            .from("unit-exams")
+            .createSignedUrl(unitExam.file_path, 60);
+
+          if (error || !data?.signedUrl) {
+            setExamStudentMessage("تعذر تحميل ملف الأسئلة.");
+            return;
+          }
+
+          window.location.href = data.signedUrl;
+        }}
+      >
+        تحميل ملف الأسئلة
+      </button>
+
+      <h4>رفع إجابة الامتحان</h4>
+      <p>ارفع صورة الحل أو ملف PDF، بحجم أقل من 500 KB.</p>
+
+      <input
+        type="file"
+        accept=".pdf,.jpg,.jpeg,.png"
+        onChange={(e) => {
+          setSelectedAnswerFile(e.target.files[0] || null);
+          setExamStudentMessage("");
+        }}
+      />
+
+      <button
+        onClick={handleUploadExamAnswer}
+        disabled={uploadingExam || !selectedAnswerFile}
+      >
+        {uploadingExam ? "جارٍ رفع الإجابة..." : "إرسال الإجابة"}
+      </button>
+
+      {examStudentMessage && (
+        <p>{examStudentMessage}</p>
+      )}
+    </div>
+  );
+})()}
+
       </div>
     ))}
 </div>
