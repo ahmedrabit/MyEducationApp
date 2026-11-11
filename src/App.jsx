@@ -199,6 +199,27 @@ function App() {
   const [loadingCourses, setLoadingCourses] = useState(true);
   const [session, setSession] = useState(null);
   const [userRole, setUserRole] = useState(null);
+
+const getBlockingLesson = (lesson) => {
+  return lessons
+    .filter(
+      (previous) =>
+     previous.course_id === lesson.course_id &&
+previous.unit_id === lesson.unit_id &&
+previous.position < lesson.position &&
+        previous.is_required === true
+    )
+    .sort((a, b) => a.position - b.position)
+    .find(
+      (previous) =>
+        !lessonProgress.some(
+          (progress) =>
+            progress.lesson_id === previous.id &&
+            progress.is_passed === true
+        )
+    );
+};
+
   useEffect(() => {
       const fetchUserRole = async () => {
         if (!session?.user) {
@@ -321,30 +342,37 @@ function App() {
 
       fetchCourses();
     }, []); useEffect(() => {
-      const fetchLessons = async () => {
-        const { data, error } = await supabase
-          .from("lessons")
-       .select("id, course_id, unit_id, title, youtube_url, position, pass_percent, is_published, is_required")
-          .order("position", { ascending: true });
+     
+const fetchLessons = async () => {
+  let data;
+  let error;
 
-        if (error) {
-          console.error("Error loading lessons:", error.message);
-          return;
-        }
+  if (userRole === "admin") {
+    const result = await supabase
+      .from("lessons")
+      .select("id, course_id, unit_id, title, youtube_url, position, pass_percent, is_published, is_required")
+      .order("position", { ascending: true });
 
-        setLessons(data || []);
-        console.log("Lessons loaded:", data);
-        console.log("All lesson IDs:", data?.map((lesson) => ({
-          title: lesson.title,
-          unit_id: lesson.unit_id
-        })));
-        console.log("First lesson unit_id:", data?.[0]?.unit_id);
-        console.log("First lesson course_id:", data?.[0]?.course_id);
+    data = result.data;
+    error = result.error;
+  } else {
+    const result = await supabase.rpc("get_lesson_catalog");
 
-      };
+    data = result.data;
+    error = result.error;
+  }
+
+  if (error) {
+    console.error("Error loading lessons:", error.message);
+    return;
+  }
+
+  setLessons(data || []);
+  console.log("Lessons loaded:", data);
+};
 
       fetchLessons();
-    }, [session]);
+   }, [session, userRole]);
     useEffect(() => {
       const fetchUnits = async () => {
         if (!session?.user?.id) {
@@ -1667,20 +1695,43 @@ is_required: newLessonRequired,
               .map((lesson) => (
                 <div key={lesson.id} className="lesson-item">
                   <button
-                   onClick={() => {
+                 onClick={async () => {
+  const blockingLesson = getBlockingLesson(lesson);
+
+  if (blockingLesson) {
+    alert(
+      `يجب اجتياز اختبار الدرس السابق أولاً:\n${blockingLesson.title}`
+    );
+    return;
+  }
+
   if (selectedLesson?.id === lesson.id) {
     setSelectedLesson(null);
     setQuizQuestions([]);
     setQuizAnswers({});
     setQuizResult(null);
     setQuizReview([]);
-  } else {
-    setSelectedLesson(lesson);
-    loadQuiz(lesson.id);
+    return;
   }
+
+  const { data: fullLesson, error } = await supabase
+    .from("lessons")
+    .select("id, course_id, unit_id, title, youtube_url, position, pass_percent, is_published, is_required")
+    .eq("id", lesson.id)
+    .single();
+
+  if (error || !fullLesson) {
+    alert("تعذر فتح الدرس.");
+    console.error(error);
+    return;
+  }
+
+  setSelectedLesson(fullLesson);
+  loadQuiz(lesson.id);
 }}
                   >
-                    {lesson.position}. {lesson.title}
+               {getBlockingLesson(lesson) ? "🔒 " : "📖 "}
+{lesson.position}. {lesson.title}
                   </button>
                  {selectedLesson?.id === lesson.id && (
                   <div className="lesson-player">
