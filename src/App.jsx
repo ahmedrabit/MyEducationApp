@@ -2147,7 +2147,7 @@ is_required: newLessonRequired,
 
 {(() => {
   const unitExam = unitExams.find(
-    (exam) => exam.unit_id === selectedUnit.id
+   (exam) => exam.unit_id === selectedUnit?.id
   );
 
   if (!unitExam) {
