@@ -440,6 +440,7 @@ const [notificationsList, setNotificationsList] = useState([]);
       setMyQuestion(data || null);
     }
   };
+
 useEffect(() => {
     if (!currentUser) return;
 
@@ -453,6 +454,9 @@ useEffect(() => {
           table: "student_questions",
         },
         (payload) => {
+          .subscribe((status) => {
+        console.log("Realtime status:", status);
+      });
           const newRow = payload.new;
           const oldRow = payload.old;
 
@@ -501,7 +505,9 @@ useEffect(() => {
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log("Realtime status:", status);
+      });
 
     return () => {
       supabase.removeChannel(channel);
