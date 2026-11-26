@@ -373,7 +373,11 @@ const [notificationsList, setNotificationsList] = useState([]);
       return;
     }
 
-    setNotificationsList((prev) => [data, ...prev]);
+    if (data) {
+      setNotificationsList((prev) =>
+        prev.some((item) => item.id === data.id) ? prev : [data, ...prev]
+      );
+    }
     setNotifTitle("");
     setNotifBody("");
     setNotifGrade("all");
@@ -389,6 +393,34 @@ const [notificationsList, setNotificationsList] = useState([]);
       setNotificationsList((prev) => prev.filter((item) => item.id !== notifId));
     }
   };
+
+  const playAlertSound = (type = "question") => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+
+      const ctx = new AudioCtx();
+      const now = ctx.currentTime;
+
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(type === "reply" ? 660 : 587.33, now);
+      osc.frequency.setValueAtTime(type === "reply" ? 880 : 783.99, now + 0.11);
+
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.exponentialRampToValueAtTime(0.14, now + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(now);
+      osc.stop(now + 0.3);
+    } catch (_) {}
+  };
+
   const loadQuestions = async () => {
     if (!currentUser) return;
     if (isAdminUser) {
@@ -408,6 +440,73 @@ const [notificationsList, setNotificationsList] = useState([]);
       setMyQuestion(data || null);
     }
   };
+useEffect(() => {
+    if (!currentUser) return;
+
+    const channel = supabase
+      .channel("student-questions-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "student_questions",
+        },
+        (payload) => {
+          const newRow = payload.new;
+          const oldRow = payload.old;
+
+          if (isAdminUser) {
+            if (payload.eventType === "INSERT" && newRow) {
+              setTeacherQuestions((prev) => {
+                if (prev.some((item) => item.id === newRow.id)) return prev;
+                playAlertSound("question");
+                return [newRow, ...prev];
+              });
+            } else if (payload.eventType === "UPDATE" && newRow) {
+              setTeacherQuestions((prev) =>
+                prev.map((item) => (item.id === newRow.id ? newRow : item))
+              );
+            } else if (payload.eventType === "DELETE" && oldRow) {
+              setTeacherQuestions((prev) =>
+                prev.filter((item) => item.id !== oldRow.id)
+              );
+            }
+          } else {
+            if (
+              (payload.eventType === "INSERT" || payload.eventType === "UPDATE") &&
+              newRow &&
+              newRow.user_id === currentUser.id
+            ) {
+              setMyQuestion((prev) => {
+                const isNewReply =
+                  payload.eventType === "UPDATE" &&
+                  newRow.answer &&
+                  newRow.answer !== prev?.answer;
+
+                if (isNewReply) {
+                  playAlertSound("reply");
+                }
+
+                if (!prev) return newRow;
+                if (
+                  newRow.id === prev.id ||
+                  new Date(newRow.created_at) >= new Date(prev.created_at)
+                ) {
+                  return newRow;
+                }
+                return prev;
+              });
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentUser, isAdminUser]);
 
   useEffect(() => {
     loadQuestions();
@@ -2652,7 +2751,7 @@ const [notificationsList, setNotificationsList] = useState([]);
                 onChange={(e) => setNotifBody(e.target.value)}
                 required
               />
-              <select
+             <select
                 value={notifGrade}
                 onChange={(e) => setNotifGrade(e.target.value)}
               >
@@ -2660,6 +2759,8 @@ const [notificationsList, setNotificationsList] = useState([]);
                 <option value="first_intermediate">الأول المتوسط</option>
                 <option value="second_intermediate">الثاني المتوسط</option>
                 <option value="third_intermediate">الثالث المتوسط</option>
+                <option value="fourth_preparatory">الرابع الإعدادي</option>
+                <option value="fifth_preparatory">الخامس الإعدادي</option>
                 <option value="sixth_preparatory">السادس الإعدادي</option>
               </select>
               <button type="submit" className="ask-send-btn" disabled={sendingNotif}>
