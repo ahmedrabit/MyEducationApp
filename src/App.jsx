@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import "./App.css";
 import { supabase } from "./lib/supabase";
 
@@ -394,32 +394,70 @@ const [notificationsList, setNotificationsList] = useState([]);
     }
   };
 
-  const playAlertSound = (type = "question") => {
+  // --- بداية: فك قفل الصوت وتشغيل تنبيه الأسئلة والردود ---
+ const audioCtxRef = useRef(null);
+
+ const unlockAudio = () => {
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (!AudioCtx) return;
 
-      const ctx = new AudioCtx();
-      const now = ctx.currentTime;
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new AudioCtx();
+      }
 
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(type === "reply" ? 660 : 587.33, now);
-      osc.frequency.setValueAtTime(type === "reply" ? 880 : 783.99, now + 0.11);
-
-      gain.gain.setValueAtTime(0.001, now);
-      gain.gain.exponentialRampToValueAtTime(0.14, now + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
-
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-
-      osc.start(now);
-      osc.stop(now + 0.3);
-    } catch (_) {}
+      if (audioCtxRef.current.state === "suspended") {
+        audioCtxRef.current.resume().catch(() => {});
+      }
+    } catch {
+      // تجاهل أي خطأ بصمت
+    }
   };
+
+  useEffect(() => {
+    window.addEventListener("touchstart", unlockAudio, { passive: true });
+    window.addEventListener("click", unlockAudio, { passive: true });
+    return () => {
+      window.removeEventListener("touchstart", unlockAudio);
+      window.removeEventListener("click", unlockAudio);
+    };
+  }, []);
+
+const playAlertSound = (type = "question") => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new AudioCtx();
+      }
+
+      const ctx = audioCtxRef.current;
+
+      const runTone = () => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(type === "question" ? 880 : 660, ctx.currentTime);
+        gain.gain.setValueAtTime(0.08, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.25);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.25);
+      };
+
+      if (ctx.state === "suspended") {
+        ctx.resume().then(runTone).catch(() => {});
+      } else if (ctx.state === "running") {
+        runTone();
+      }
+    } catch {
+      // تجاهل أي خطأ صوتي بصمت
+    }
+  };
+  // --- نهاية: فك قفل الصوت وتشغيل تنبيه الأسئلة والردود ---
 
   const loadQuestions = async () => {
     if (!currentUser) return;
@@ -441,7 +479,8 @@ const [notificationsList, setNotificationsList] = useState([]);
     }
   };
 
-useEffect(() => {
+// --- بداية: اشتراك Realtime وإعادة المزامنة عند العودة للتطبيق ---
+  useEffect(() => {
     if (!currentUser) return;
 
     const channel = supabase
@@ -454,7 +493,6 @@ useEffect(() => {
           table: "student_questions",
         },
         (payload) => {
-          console.log("Realtime payload:", payload);
           const newRow = payload.new;
           const oldRow = payload.old;
 
@@ -480,16 +518,14 @@ useEffect(() => {
               newRow &&
               newRow.user_id === currentUser.id
             ) {
+             if (
+  payload.eventType === "UPDATE" &&
+  (newRow.answer || newRow.status === "answered")
+) {
+                playAlertSound("reply");
+              }
+
               setMyQuestion((prev) => {
-                const isNewReply =
-                  payload.eventType === "UPDATE" &&
-                  newRow.answer &&
-                  newRow.answer !== prev?.answer;
-
-                if (isNewReply) {
-                  playAlertSound("reply");
-                }
-
                 if (!prev) return newRow;
                 if (
                   newRow.id === prev.id ||
@@ -503,14 +539,22 @@ useEffect(() => {
           }
         }
       )
-      .subscribe((status) => {
-        console.log("Realtime status:", status);
-      });
+      .subscribe();
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        loadQuestions();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       supabase.removeChannel(channel);
     };
   }, [currentUser, isAdminUser]);
+  // --- نهاية: اشتراك Realtime وإعادة المزامنة عند العودة للتطبيق ---
 
   useEffect(() => {
     loadQuestions();
@@ -2810,8 +2854,8 @@ useEffect(() => {
           )}
         </section>
       )}
-      {activeTab === "الرئيسية" && !selectedCourse && currentUser && (
-          <section className="ask-teacher-section">
+     {activeTab === "اسأل أستاذك" && currentUser && (
+     <section className="ask-teacher-section">
             <div className="ask-teacher-card">
               <div className="ask-teacher-top-bar">
                 <div>
@@ -2959,16 +3003,22 @@ useEffect(() => {
           </section>
         )}
 
-     <nav className="bottom-nav">
+     {/* --- بداية: شريط التنقل السفلي مع زر اسأل أستاذك للطالب --- */}
+      <nav className="bottom-nav">
         {[
           ["الرئيسية", "⌂"],
           ["الدورات", "▤"],
+          ["اسأل أستاذك", "💬"],
           ["التنبيهات", "🔔"],
           ["إنجازاتي", "🏆"],
         ].map(([label, icon]) => (
           <button
             key={label}
-            className={activeTab === label ? "nav-item active" : "nav-item"}
+            className={
+              activeTab === label
+                ? `nav-item active ${label === "اسأل أستاذك" ? "nav-ask-teacher" : ""}`
+                : `nav-item ${label === "اسأل أستاذك" ? "nav-ask-teacher" : ""}`
+            }
             onClick={() => {
               setActiveTab(label);
               setSelectedCourse(null);
@@ -2988,6 +3038,7 @@ useEffect(() => {
           </button>
         ))}
       </nav>
+      {/* --- نهاية: شريط التنقل السفلي مع زر اسأل أستاذك للطالب --- */}
     </div>
   );
 }

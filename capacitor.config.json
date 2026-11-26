@@ -1,5 +1,9 @@
 {
   "appId": "com.activezed.app",
   "appName": "Active Zed",
-  "webDir": "dist"
+  "webDir": "dist",
+  "server": {
+    "url": "https://myeducationapp.vercel.app",
+    "cleartext": false
+  }
 }
