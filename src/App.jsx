@@ -454,9 +454,7 @@ useEffect(() => {
           table: "student_questions",
         },
         (payload) => {
-          .subscribe((status) => {
-        console.log("Realtime status:", status);
-      });
+          console.log("Realtime payload:", payload);
           const newRow = payload.new;
           const oldRow = payload.old;
 
