@@ -37,6 +37,8 @@ const courses = [
 
 function App() {
   const [activeTab, setActiveTab] = useState("الرئيسية");
+  const [hasUnreadAskTeacher, setHasUnreadAskTeacher] = useState(false);
+const [hasUnreadAlerts, setHasUnreadAlerts] = useState(false);
   const [adminSection, setAdminSection] = useState("dashboard");
   const [newCourseTitle, setNewCourseTitle] = useState("");
   const [newCourseGrade, setNewCourseGrade] = useState("first_intermediate");
@@ -331,10 +333,14 @@ const [notificationsList, setNotificationsList] = useState([]);
           table: "notifications",
         },
         (payload) => {
-          if (payload.eventType === "INSERT" && payload.new) {
+         if (payload.eventType === "INSERT" && payload.new) {
             setNotificationsList((prev) => {
               const exists = prev.some((item) => item.id === payload.new.id);
-              return exists ? prev : [payload.new, ...prev];
+              if (!exists) {
+                setHasUnreadAlerts(true);
+                return [payload.new, ...prev];
+              }
+              return prev;
             });
           } else if (payload.eventType === "DELETE" && payload.old) {
             setNotificationsList((prev) =>
@@ -501,6 +507,7 @@ const playAlertSound = (type = "question") => {
               setTeacherQuestions((prev) => {
                 if (prev.some((item) => item.id === newRow.id)) return prev;
                 playAlertSound("question");
+                setHasUnreadAskTeacher(true);
                 return [newRow, ...prev];
               });
             } else if (payload.eventType === "UPDATE" && newRow) {
@@ -523,6 +530,7 @@ const playAlertSound = (type = "question") => {
   (newRow.answer || newRow.status === "answered")
 ) {
                 playAlertSound("reply");
+                setHasUnreadAskTeacher(true);
               }
 
               setMyQuestion((prev) => {
@@ -3019,9 +3027,15 @@ const playAlertSound = (type = "question") => {
                 ? `nav-item active ${label === "اسأل أستاذك" ? "nav-ask-teacher" : ""}`
                 : `nav-item ${label === "اسأل أستاذك" ? "nav-ask-teacher" : ""}`
             }
-            onClick={() => {
+           onClick={() => {
               setActiveTab(label);
               setSelectedCourse(null);
+              if (label === "اسأل أستاذك") {
+                setHasUnreadAskTeacher(false);
+              } else if (label === "التنبيهات") {
+                setHasUnreadAlerts(false);
+              }
+
               if (label === "الرئيسية") {
                 window.scrollTo({ top: 0, behavior: "smooth" });
               } else if (label === "الدورات") {
@@ -3033,7 +3047,13 @@ const playAlertSound = (type = "question") => {
               }
             }}
           >
-            <span>{icon}</span>
+            <span className="nav-icon-wrap">
+              <span>{icon}</span>
+              {((label === "اسأل أستاذك" && hasUnreadAskTeacher) ||
+                (label === "التنبيهات" && hasUnreadAlerts)) && (
+                <span className="nav-red-dot" aria-hidden="true" />
+              )}
+            </span>
             <small>{label}</small>
           </button>
         ))}

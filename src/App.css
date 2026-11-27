@@ -1569,3 +1569,25 @@ button {
 .bottom-nav .nav-ask-teacher.active {
   border-top: 2px solid #f5b700;
 }
+
+.nav-item {
+  position: relative;
+}
+
+.nav-icon-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nav-red-dot {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background-color: #ef4444;
+  box-shadow: 0 0 0 2px #111827;
+}
